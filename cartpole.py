@@ -69,20 +69,22 @@ q_table.shape
 # print(q_table[0][0])
 
 def get_discrete_state(state):
-    discrete_state = state/step_size+ np.array([15,10,1,10])
-    return tuple(discrete_state.astype(np.int))
+    discrete_state = state[0]/step_size + np.array([15,10,1,10])
+    discrete_state = np.clip(discrete_state, (0, 0, 0, 0), (Observation[0] - 1, Observation[1] - 1, Observation[2] - 1, Observation[3] - 1))
+    return tuple(discrete_state.astype(np.int_))
 
 
 #iterate through our epochs
 for epoch in range(epochs + 1): 
     #set the initial time, so we can calculate how much each action takes
     t_initial = time.time() 
-    
+    # print(env.observation_space.sample())
     #get the discrete state for the restarted environment, so we know what's going on
     discrete_state = get_discrete_state(env.reset()) 
     
     #we create a boolean that will tell us whether our game is running or not
-    done = False
+    terminated = False
+    truncated = False
     
     #our reward is intialized at zero at the beginning of every eisode
     epoch_reward = 0 
@@ -91,7 +93,7 @@ for epoch in range(epochs + 1):
     if epoch % 1000 == 0: 
         print("Episode: " + str(epoch))
 
-    while not done: 
+    while not (terminated or truncated): 
         #Now we are in our gameloop
         #if some random number is greater than epsilon, then we take the best possible action we have explored so far
         if np.random.random() > epsilon:
@@ -104,7 +106,7 @@ for epoch in range(epochs + 1):
             action = np.random.randint(0, env.action_space.n) 
 
         #now we will intialize our new_state, reward, and done variables
-        new_state, reward, done, _ = env.step(action) 
+        new_state, reward, terminated, truncated, _ = env.step(action) 
     
         epoch_reward += reward 
         
@@ -112,11 +114,15 @@ for epoch in range(epochs + 1):
         new_discrete_state = get_discrete_state(new_state)
         
         #we render our environment after 2000 steps
-        if epoch % 2000 == 0: 
-            env.render()
+        # if epoch % 2000 == 0: 
+        #     env.render()
+        if epoch % 10000 == 0:
+            frame = env.render()
+            frames.append(frame)
+
 
         #if the game loop is still running update the q-table
-        if not done:
+        if not (terminated or truncated):
             max_new_q = np.max(q_table[new_discrete_state])
 
             current_q = q_table[discrete_state + (action,)]
@@ -157,3 +163,11 @@ for epoch in range(epochs + 1):
         total_reward = 0
 
 env.close()
+
+fourcc = cv2.VideoWriter_fourcc(*'XVID')
+out = cv2.VideoWriter('cartpole_episode.avi', fourcc, 20.0, (frame.shape[1], frame.shape[0]))
+
+for frame in frames:
+    out.write(frame)
+
+out.release()
