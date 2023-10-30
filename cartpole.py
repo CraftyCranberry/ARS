@@ -4,8 +4,13 @@ import time
 import math
 import cv2
 
+render_mode = 'h'
 
-env = gym.make("CartPole-v1", render_mode="rgb_array")
+if render_mode == 'h':
+    env = gym.make("CartPole-v1", render_mode="human")
+elif render_mode == 'r':
+    env = gym.make("CartPole-v1", render_mode="rgb_array")
+
 # env.reset()
 # action = env.action_space.sample()
 # observation, reward, terminated, truncated, info = env.step(action)
