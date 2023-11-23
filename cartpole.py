@@ -4,7 +4,7 @@ import time
 import math
 import cv2
 
-render_mode = 'h'
+render_mode = 'r'
 
 if render_mode == 'h':
     env = gym.make("CartPole-v1", render_mode="human")
@@ -95,7 +95,7 @@ for epoch in range(epochs + 1):
     epoch_reward = 0 
 
     #Every 1000 epochs we have an episode
-    if epoch % 1000 == 0: 
+    if epoch % 1000  == 0: 
         print("Episode: " + str(epoch))
 
     while not (terminated or truncated): 
