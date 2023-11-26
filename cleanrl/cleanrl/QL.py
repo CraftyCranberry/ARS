@@ -79,7 +79,7 @@ def parse_args():
 
 def make_env(env_id, seed, idx, capture_video, run_name):
     def thunk():
-        if capture_video:
+        if capture_video and idx == 0:
             env = gym.make(env_id, render_mode="rgb_array")
             env = gym.wrappers.RecordVideo(env, f"videos/{run_name}")
         else:
@@ -93,19 +93,30 @@ def make_env(env_id, seed, idx, capture_video, run_name):
 
 
 # ALGO LOGIC: initialize agent here:
-class QNetwork(nn.Module):
-    def __init__(self, env):
-        super().__init__()
-        self.network = nn.Sequential(
-            nn.Linear(np.array(env.single_observation_space.shape).prod(), 120),
-            nn.ReLU(),
-            nn.Linear(120, 84),
-            nn.ReLU(),
-            nn.Linear(84, env.single_action_space.n),
-        )
+# class QNetwork(nn.Module):
+#     def __init__(self, env):
+#         super().__init__()
+#         self.network = nn.Sequential(
+#             nn.Linear(np.array(env.single_observation_space.shape).prod(), 120),
+#             nn.ReLU(),
+#             nn.Linear(120, 84),
+#             nn.ReLU(),
+#             nn.Linear(84, env.single_action_space.n),
+#         )
 
-    def forward(self, x):
-        return self.network(x)
+#     def forward(self, x):
+#         return self.network(x)
+
+
+class QTable:
+    def __init__(self, num_states, num_actions):
+        self.q_table = np.zeros((num_states, num_actions))
+
+    def get_q_value(self, state, action):
+        return self.q_table[state, action]
+
+    def update_q_value(self, state, action, value):
+        self.q_table[state, action] = value
 
 
 def linear_schedule(start_e: float, end_e: float, duration: int, t: int):
@@ -157,10 +168,15 @@ poetry run pip install "stable_baselines3==2.0.0a1"
     )
     assert isinstance(envs.single_action_space, gym.spaces.Discrete), "only discrete action space is supported"
 
-    q_network = QNetwork(envs).to(device)
-    optimizer = optim.Adam(q_network.parameters(), lr=args.learning_rate)
-    target_network = QNetwork(envs).to(device)
-    target_network.load_state_dict(q_network.state_dict())
+    # q_network = QNetwork(envs).to(device)
+    # optimizer = optim.Adam(q_network.parameters(), lr=args.learning_rate)
+    # target_network = QNetwork(envs).to(device)
+    # target_network.load_state_dict(q_network.state_dict())
+
+    env = gym.make(args.env_id)
+    num_states = env.observation_space.n  # Assuming discrete state space
+    num_actions = env.action_space.n  # Assuming discrete action space
+    q_table = QTable(num_states, num_actions)
 
     rb = ReplayBuffer(
         args.buffer_size,
@@ -171,17 +187,19 @@ poetry run pip install "stable_baselines3==2.0.0a1"
     )
     start_time = time.time()
 
+
+
+
+
     # TRY NOT TO MODIFY: start the game
     obs, _ = envs.reset(seed=args.seed)
     for global_step in range(args.total_timesteps):
         # ALGO LOGIC: put action logic here
         epsilon = linear_schedule(args.start_e, args.end_e, args.exploration_fraction * args.total_timesteps, global_step)
         if random.random() < epsilon:
-            actions = np.array([envs.single_action_space.sample() for _ in range(envs.num_envs)])
+            action = env.action_space.sample()
         else:
-            q_values = q_network(torch.Tensor(obs).to(device))
-            actions = torch.argmax(q_values, dim=1).cpu().numpy()
-
+            action = np.argmax(q_table.get_q_value(obs))
         # TRY NOT TO MODIFY: execute the game and log data.
         next_obs, rewards, terminations, truncations, infos = envs.step(actions)
 
@@ -210,56 +228,32 @@ poetry run pip install "stable_baselines3==2.0.0a1"
         # ALGO LOGIC: training.
         if global_step > args.learning_starts:
             if global_step % args.train_frequency == 0:
-                data = rb.sample(args.batch_size)
-                with torch.no_grad():
-                    target_max, _ = target_network(data.next_observations).max(dim=1)
-                    td_target = data.rewards.flatten() + args.gamma * target_max * (1 - data.dones.flatten())
-                old_val = q_network(data.observations).gather(1, data.actions).squeeze()
-                loss = F.mse_loss(td_target, old_val)
+                target = reward + args.gamma * np.max(q_table.get_q_value(next_obs)) * (1 - done)
+                old_value = q_table.get_q_value(obs, action)
+                new_value = old_value + args.learning_rate * (target - old_value)
+                q_table.update_q_value(obs, action, new_value)
+
+                obs = next_obs
 
                 if global_step % 100 == 0:
-                    writer.add_scalar("losses/td_loss", loss, global_step)
-                    writer.add_scalar("losses/q_values", old_val.mean().item(), global_step)
                     print("SPS:", int(global_step / (time.time() - start_time)))
                     writer.add_scalar("charts/SPS", int(global_step / (time.time() - start_time)), global_step)
 
                 # optimize the model
-                optimizer.zero_grad()
-                loss.backward()
-                optimizer.step()
+                # optimizer.zero_grad()
+                # loss.backward()
+                # optimizer.step()
 
             # update target network
-            if global_step % args.target_network_frequency == 0:
-                for target_network_param, q_network_param in zip(target_network.parameters(), q_network.parameters()):
-                    target_network_param.data.copy_(
-                        args.tau * q_network_param.data + (1.0 - args.tau) * target_network_param.data
-                    )
+            # if global_step % args.target_network_frequency == 0:
+            #     for target_network_param, q_network_param in zip(target_network.parameters(), q_network.parameters()):
+            #         target_network_param.data.copy_(
+            #             args.tau * q_network_param.data + (1.0 - args.tau) * target_network_param.data
+            #         )
 
     if args.save_model:
-        model_path = f"runs/{run_name}/{args.exp_name}.cleanrl_model"
-        torch.save(q_network.state_dict(), model_path)
-        print(f"model saved to {model_path}")
-        from cleanrl_utils.evals.dqn_eval import evaluate
-
-        episodic_returns = evaluate(
-            model_path,
-            make_env,
-            args.env_id,
-            eval_episodes=10,
-            run_name=f"{run_name}-eval",
-            Model=QNetwork,
-            device=device,
-            epsilon=0.05,
-        )
-        for idx, episodic_return in enumerate(episodic_returns):
-            writer.add_scalar("eval/episodic_return", episodic_return, idx)
-
-        if args.upload_model:
-            from cleanrl_utils.huggingface import push_to_hub
-
-            repo_name = f"{args.env_id}-{args.exp_name}-seed{args.seed}"
-            repo_id = f"{args.hf_entity}/{repo_name}" if args.hf_entity else repo_name
-            push_to_hub(args, episodic_returns, repo_id, "DQN", f"runs/{run_name}", f"videos/{run_name}-eval")
+        print("Q-table doesn't require saving weights as in neural networks.")
+        np.save(f"runs/{run_name}/{args.exp_name}_q_table.npy", q_table.q_table)
 
     envs.close()
     writer.close()
