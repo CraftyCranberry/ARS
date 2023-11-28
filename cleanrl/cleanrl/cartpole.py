@@ -52,7 +52,7 @@ lr = 0.1
 gamma = 0.96
 
 #Amount of iterations we are going to run until we see our model is trained
-epochs = 60
+epochs = 30000
 total_time = 0
 total_reward = 0
 prev_reward = 0
@@ -104,9 +104,9 @@ for epoch in range(epochs + 1):
     while not (terminated or truncated): 
         #Now we are in our gameloop
         #if some random number is greater than epsilon, then we take the best possible action we have explored so far
-        print("cattt:" +  str(env.action_space.n))
+        # print("cattt:" +  str(env.action_space.n))
         action = np.random.randint(0, env.action_space.n) 
-        print("action:  " +  str(action))
+        # print("action:  " +  str(action))
 
         if np.random.random() > epsilon:
 
@@ -147,7 +147,9 @@ for epoch in range(epochs + 1):
     # if our epsilon is greater than .05m , and if our reward is greater than the previous and if we reached past our 10000 epoch, we recalculate episilon
     
     if epsilon > 0.05: 
+        print ('Epsilonss: ' + str (epsilon))       
         if epoch_reward > prev_reward and epoch > 10000:
+            print ('Epsilon: ' + str (epsilon))
             epsilon = math.pow(epsilon_decay_value, epoch - 10000)
 
             if epoch % 500 == 0:

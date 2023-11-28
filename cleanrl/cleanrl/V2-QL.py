@@ -32,7 +32,16 @@ def parse_args():
         help="the id of the environment")
     parser.add_argument("--num-envs", type=int, default=1,
         help="the number of parallel game environments")
-    
+    parser.add_argument("--num-episodes", type=int, default="10000",
+        help="the number of episodes")
+    parser.add_argument("--learning-rate", type=float, default=2.5e-4,
+        help="the learning rate of the optimizer")
+    parser.add_argument("--epsilon", type=float, default=1,
+        help="the starting epsilon for exploration")
+    parser.add_argument("--epsilon-decay-rate", type=float, default=0.99995,
+        help="the ending epsilon for exploration")
+    parser.add_argument("--gamma", type=float, default=0.99,
+        help="the discount factor gamma")
 
     args = parser.parse_args()
     assert args.num_envs == 1, "vectorized envs are not supported at the moment"
@@ -56,27 +65,29 @@ def make_env(env_id, seed, idx, capture_video, run_name):
 
 
 
-# Learning Rate: learning rate is associated with how big you take a leap
-lr = 0.1
 
-#Discount Factor
-gamma = 0.96
+lr = 0
+gamma = 0
+epsilon = 0
+epsilon_decay_value = 0
 
 #Amount of iterations we are going to run until we see our model is trained
-epochs = 100000
+epochs = 0
 total_time = 0
 total_reward = 0
 prev_reward = 0
 frames = []
+actions = []   
 
 Observation = [30, 30, 50, 50]
-step_size = np.array([0.25, 0.25, 0.01, 0.1] )
+# step_size = np.array([0.25, 0.25, 0.01, 0.1] )
+step_size = 0.1
 
 # epsilon is associated with how random you take an action.
-epsilon = 1
+
 
 #exploration is decaying and we will get to a state of full exploitation
-epsilon_decay_value = 0.99995
+
 
 
 #randomly initializing values in our q table our q table
@@ -93,14 +104,20 @@ if __name__ == "__main__":
 poetry run pip install "stable_baselines3==2.0.0a1"
 """
         )
-    
     args = parse_args()
-    run_name = f"{args.exp_name}__{args.seed}__{int(time.time())}"
+    epochs = args.num_episodes
+    lr = args.learning_rate
+    gamma = args.gamma
+    epsilon = args.epsilon
+    epsilon_decay_value = args.epsilon_decay_rate
 
+
+    run_name = f"{args.exp_name}__{args.seed}__{int(time.time())}"
+    
     env = gym.vector.SyncVectorEnv(
         [make_env(args.env_id, args.seed + i, i, args.capture_video, run_name) for i in range(args.num_envs)]
     )
-    print(env.single_action_space.n)
+    # print(env.single_action_space.n)
     # action_spaces = env.action_space
     # total_actions = sum(np.prod(action_space.nvec) for action_space in action_spaces)
     # print(total_actions)
@@ -110,21 +127,24 @@ poetry run pip install "stable_baselines3==2.0.0a1"
     q_table.shape
     # print(q_table[0][0])
 
-    def get_discrete_state(state):
-        discrete_state = state[0]/step_size + np.array([15,10,1,10])
-        discrete_state = np.clip(discrete_state, (0, 0, 0, 0), (Observation[0] - 1, Observation[1] - 1, Observation[2] - 1, Observation[3] - 1))
+    def get_discrete_state(ent, step_size):
+        observation_space = env.observation_space
+        state = ent[0]
+        discrete_state = state[0] / step_size + (observation_space.high - observation_space.low) / 2
+        discrete_state = np.clip(discrete_state, observation_space.low, observation_space.high - 1)
         return tuple(discrete_state.astype(np.int_))
-
     # ... (existing Q-learning code)
 
     writer = SummaryWriter(f"runs/{run_name}")
     #iterate through our epochs
     for epoch in range(epochs + 1): 
+        # print(env.reset)
         #set the initial time, so we can calculate how much each action takes
         t_initial = time.time() 
         # print(env.observation_space.sample())
         #get the discrete state for the restarted environment, so we know what's going on
-        discrete_state = get_discrete_state(env.reset()) 
+        # print(env.reset())
+        discrete_state = get_discrete_state(env.reset(), step_size) 
         
         #we create a boolean that will tell us whether our game is running or not
         terminated = False  
@@ -139,39 +159,45 @@ poetry run pip install "stable_baselines3==2.0.0a1"
         #Every 1000 epochs we have an episode
         if epoch % 1000  == 0: 
             print("Episode: " + str(epoch))
-
+         
         while not (terminated or truncated): 
             #Now we are in our gameloop
-            #if some random number is greater than epsilon, then we take the best possible action we have explored so far
-            # print("env.single_action_space.n:   " +  str(env.single_action_space.n))
-            # print("env.action_space:    " +  str(env.saction_space.n))
-            # action = np.random.randint(0, env.single_action_space.n)
-            # print("action:  " +  str(action))
-            # print("env.action_space:" +  str(env.action_space))
-            # print("env.action_space:" +  str(env.action_space))
-            actions = []
+            #if some random number is greater than epsilon, then we take the best possible action we have explored so far            actions = []
             if isinstance(env.single_action_space, gym.spaces.Discrete):
                 if np.random.random() > epsilon:
+                    # print("bat")
+                    # print(f"Discrete State: {discrete_state}")
                     action = np.argmax(q_table[discrete_state])
                 else:
+                    # print("cat  ")
                     action = np.random.randint(0, env.single_action_space.n)
+                # print(f"Action: {action}")
                 actions.append(action)
+                # print(f"Action: {action}")
             elif isinstance(env.single_action_space, gym.spaces.MultiDiscrete):
                 for i in range(env.single_action_space.n):
                     if np.random.random() > epsilon:
                         action = np.argmax(q_table[discrete_state])
                     else:
                         action = np.random.randint(0, env.single_action_space.nvec[i])
+                    # print(f"Action: {action}")
                     actions.append(action)
+                    # print(f"Action: {action}")
 
+            # if action > 1:
+            #     action = 1
+
+            # print(f"Action selected: {action}")
             #now we will intialize our new_state, reward, and done variables
             new_state, reward, terminated, truncated, _ = env.step(actions) 
         
             epoch_reward += reward 
             
             #we discretize our new state
-            new_discrete_state = get_discrete_state(new_state)
-            
+            # new_discrete_state = get_discrete_state(new_state)
+            new_discrete_state = get_discrete_state(new_state, step_size) 
+            # print(new_discrete_state)
+            # print(new_discrete_state)
             #we render our environment after 2000 steps
             # if epoch % 2000 == 0: 
             #     env.render()
@@ -185,6 +211,7 @@ poetry run pip install "stable_baselines3==2.0.0a1"
 
 
             #if the game loop is still running update the q-table
+    
             if not (terminated or truncated):
                 max_new_q = np.max(q_table[new_discrete_state])
 
@@ -196,10 +223,11 @@ poetry run pip install "stable_baselines3==2.0.0a1"
 
             discrete_state = new_discrete_state
         # if our epsilon is greater than .05m , and if our reward is greater than the previous and if we reached past our 10000 epoch, we recalculate episilon
-        
+        # print ('Epsilonss: ' + str (epsilon))
         if epsilon > 0.05: 
-            if epoch_reward > prev_reward and epoch > 10000:
-                epsilon = math.pow(epsilon_decay_value, epoch - 10000)
+            if epoch_reward > prev_reward and epoch > 1000:
+                # print ('Epsilon: ' + str (epsilon))
+                epsilon = math.pow(epsilon_decay_value, epoch - 1000)
 
                 if epoch % 500 == 0:
                     print("Epsilon: " + str(epsilon))
@@ -216,19 +244,23 @@ poetry run pip install "stable_baselines3==2.0.0a1"
         prev_reward = epoch_reward
 
         #every 1000 episodes print the average time and the average reward
-        if epoch % 1000 == 0: 
+        if epoch % 1 == 0: 
             mean = total_time / 1000
             print("Time Average: " + str(mean))
             total_time = 0
 
             mean_reward = total_reward / 1000
+            writer.add_scalar("charts/mean_reward", mean_reward, epoch)
             print("Mean Reward: " + str(mean_reward))
             total_reward = 0
 
-        if epoch % 1000 == 0:
-                writer.add_scalar("charts/episode_reward", epoch_reward, epoch)
-                writer.add_scalar("charts/epsilon", epsilon, epoch)
-                writer.add_scalar("charts/mean_reward", mean_reward, epoch)
+        writer.add_scalar("charts/episodic_return", epoch_reward, epoch)
+        writer.add_scalar("charts/epsilon", epsilon, epoch)
+        writer.add_scalar("charts/episodic_length", episode_total, epoch)
+        writer.add_scalar("charts/learning_rate", lr, epoch)
+        writer.add_scalar("charts/epsilon", epsilon, epoch)
+        writer.add_scalar("charts/gamma", gamma, epoch)
+                
 
 env.close()
 
