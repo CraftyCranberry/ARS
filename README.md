@@ -1,4 +1,4 @@
-# Reinforcemnet Learning, DQN vs QL
+# Reinforcement Learning, DQN vs QL
 This repo contains code for my Reinforcement Learning Coursework for the Autonomous Robotics Module
 I've cleaned up the repo and only kept the final code and reports. Feel free to go through the commit history to check the previous versions. 
 
